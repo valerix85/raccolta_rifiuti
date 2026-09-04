@@ -51,7 +51,17 @@ Aggiungi nel tuo `configuration.yaml`:
 sensor:
   - platform: raccolta_rifiuti
     calendar_entity_id: calendar.raccolta_rifiuti
+    # language: auto        # opzionale: "auto" (default, segue la lingua di Home Assistant), "it" oppure "en"
+    # lookahead_days: 7     # opzionale (default 7): entro quanti giorni cercare la prossima raccolta se oggi non c'è nulla
+    # scan_interval: "00:30:00"  # opzionale: intervallo di aggiornamento (default 30 minuti)
 ```
+
+🌍 **Multi-lingua**: puoi scrivere gli eventi del calendario in italiano o in inglese (es. "Carta" o "Paper"), vengono riconosciuti entrambi. L'opzione `language` controlla solo la lingua di *visualizzazione* dello stato e degli attributi del sensore (default: segue la lingua configurata in Home Assistant). È disponibile anche l'attributo `collection_type_codes`, con valori stabili in inglese (es. `"paper"`, `"glass"`), utile per chi vuole scrivere template Lovelace indipendenti dalla lingua.
+
+📅 **Prossima raccolta (`lookahead_days`)**: `state` e `collection_types` continuano a descrivere solo la raccolta di **oggi** (nessuna modifica per chi già usa l'integrazione). In più, se oggi non c'è nulla, il sensore cerca in avanti entro `lookahead_days` giorni e popola:
+- `days_remaining`: giorni mancanti alla prossima raccolta trovata (`0` se è oggi)
+- `next_collection_date`: data della prossima raccolta (`YYYY-MM-DD`)
+- `next_collection_types` / `next_collection_type_codes`: tipi previsti in quella data
 
 Riavvia Home Assistant
 
@@ -302,7 +312,17 @@ Add this to your `configuration.yaml`:
 sensor:
   - platform: raccolta_rifiuti
     calendar_entity_id: calendar.raccolta_rifiuti
+    # language: auto             # optional: "auto" (default, follows Home Assistant's language), "it" or "en"
+    # lookahead_days: 7          # optional (default 7): how many days ahead to look for the next collection if today has none
+    # scan_interval: "00:30:00"  # optional: update interval (default 30 minutes)
 ```
+
+🌍 **Multi-language**: calendar events can be written in Italian or English (e.g. "Carta" or "Paper"), both are recognized. The `language` option only controls the *display* language of the sensor's state and attributes (default: follows Home Assistant's configured language). A `collection_type_codes` attribute is also available, with stable English identifiers (e.g. `"paper"`, `"glass"`), handy for building Lovelace templates that shouldn't depend on the display language.
+
+📅 **Next collection (`lookahead_days`)**: `state` and `collection_types` keep describing only **today's** collection (no change for existing users). In addition, if nothing is scheduled today, the sensor looks ahead up to `lookahead_days` days and populates:
+- `days_remaining`: days until the next collection found (`0` if it's today)
+- `next_collection_date`: date of the next collection (`YYYY-MM-DD`)
+- `next_collection_types` / `next_collection_type_codes`: expected types on that date
 
 Restart Home Assistant.
 
