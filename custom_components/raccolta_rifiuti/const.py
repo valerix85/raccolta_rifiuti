@@ -4,43 +4,30 @@ DOMAIN = "raccolta_rifiuti"
 PLATFORMS = ["sensor"]
 
 CONF_CALENDAR = "calendar_entity_id"
-CONF_SENSOR_NAME = "sensor_name"
 CONF_LOOKAHEAD_DAYS = "lookahead_days"
+CONF_LANGUAGE = "language"
 
-DEFAULT_SENSOR_NAME = "Raccolta Rifiuti"
 DEFAULT_LOOKAHEAD_DAYS = 7
 
-# Event type keywords and corresponding image files (case-insensitive)
-EVENT_TYPE_KEYWORDS = {
-    "plastica": "plastica.png",
-    "umido": "umido.png",
-    "organico": "umido.png",
-    "indifferenziata": "indifferenziata.png",
-    "indifferenziato": "indifferenziata.png",
-    "secco": "indifferenziata.png",
-    "rifiuto secco": "indifferenziata.png",
-    "carta": "carta.png",
-    "cartone": "carta.png",
-    "vetro": "vetro.png",
-    "metallo": "metallo.png",
-    "Raccolta Sconosciuta": "vetro.png",
-    # Aggiungi qui altre keyword se necessario (es. "matallo", "latta")
-    # "metallo": "metallo.png",
-    # "latta": "latta.png",
-}
+# "auto" = use Home Assistant's configured language (hass.config.language),
+# falling back to English if it isn't one of the supported languages.
+CONF_LANGUAGE_AUTO = "auto"
+DEFAULT_LANGUAGE_OPTION = CONF_LANGUAGE_AUTO
 
-# Default image
-DEFAULT_IMAGE = "default.png"
-
-# Image path
+# Image path (served from config/www/... via the /local/ alias)
 IMAGE_BASE_PATH = "/local/images/img_raccolta_rifiuti/"
 
-# Attributes
+# Attributes describing TODAY's calendar entry (unchanged contract).
 ATTR_EVENT_SUMMARY = "event_summary"
 ATTR_EVENT_START_TIME = "event_start_time"
-ATTR_DAYS_REMAINING = "days_remaining"
 ATTR_COLLECTION_TYPES = "collection_types"
+# Language-independent version of collection_types (canonical English
+# identifiers, e.g. "paper", "glass"), stable regardless of `language:`.
+ATTR_COLLECTION_TYPE_CODES = "collection_type_codes"
 
-# Sensor States
-STATE_NO_EVENT = "Nessuna raccolta programmata"
-STATE_UNKNOWN_EVENT = "Raccolta sconosciuta"
+# Attributes describing the NEXT upcoming collection within lookahead_days
+# (0 days away if today has one, otherwise the first matching day ahead).
+ATTR_DAYS_REMAINING = "days_remaining"
+ATTR_NEXT_COLLECTION_DATE = "next_collection_date"
+ATTR_NEXT_COLLECTION_TYPES = "next_collection_types"
+ATTR_NEXT_COLLECTION_TYPE_CODES = "next_collection_type_codes"
