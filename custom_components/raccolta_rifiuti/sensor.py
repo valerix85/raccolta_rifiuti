@@ -111,8 +111,11 @@ async def async_setup_platform(
         _LOGGER.debug("Calendar entity %s found immediately.", calendar_entity_id)
         await _async_finalize_setup()
     else:
-        _LOGGER.warning(
-            "Calendar entity %s not found immediately. "
+        # Normale durante l'avvio: la piattaforma sensor viene spesso
+        # inizializzata prima che l'entità calendario sia pronta. Non è un
+        # errore: viene ritentato automaticamente a EVENT_HOMEASSISTANT_START.
+        _LOGGER.info(
+            "Calendar entity %s not found immediately (normale in fase di avvio). "
             "Will attempt setup again after Home Assistant starts.",
             calendar_entity_id,
         )
