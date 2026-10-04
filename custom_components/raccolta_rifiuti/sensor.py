@@ -1,82 +1,95 @@
-# -*- coding: utf-8 -*-
-"""Sensor platform for Raccolta Rifiuti using calendar event fetching via service call."""
+"""Sensor platform for Raccolta Rifiuti, fed by a Home Assistant calendar."""
 
 # Creato da domoticafacile.it
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
 import logging
-import re
-from datetime import timedelta, date, datetime
+from typing import Any
 
 import voluptuous as vol
+
 from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
-from homeassistant.const import CONF_NAME, EVENT_HOMEASSISTANT_START
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
+    SensorEntity,
+)
+from homeassistant.const import CONF_NAME, STATE_UNAVAILABLE
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_change,
+)
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    DOMAIN,
+    ATTR_COLLECTION_TYPE_CODES,
+    ATTR_COLLECTION_TYPES,
+    ATTR_DAYS_REMAINING,
+    ATTR_EVENT_START_TIME,
+    ATTR_EVENT_SUMMARY,
+    ATTR_NEXT_COLLECTION_DATE,
+    ATTR_NEXT_COLLECTION_TYPE_CODES,
+    ATTR_NEXT_COLLECTION_TYPES,
     CONF_CALENDAR,
-    CONF_LOOKAHEAD_DAYS,
+    CONF_KEYWORDS,
     CONF_LANGUAGE,
     CONF_LANGUAGE_AUTO,
-    DEFAULT_LOOKAHEAD_DAYS,
+    CONF_LOOKAHEAD_DAYS,
     DEFAULT_LANGUAGE_OPTION,
+    DEFAULT_LOOKAHEAD_DAYS,
+    DOMAIN,
     IMAGE_BASE_PATH,
-    ATTR_EVENT_SUMMARY,
-    ATTR_EVENT_START_TIME,
-    ATTR_DAYS_REMAINING,
-    ATTR_COLLECTION_TYPES,
-    ATTR_COLLECTION_TYPE_CODES,
-    ATTR_NEXT_COLLECTION_DATE,
-    ATTR_NEXT_COLLECTION_TYPES,
-    ATTR_NEXT_COLLECTION_TYPE_CODES,
 )
 from .localization import (
-    TYPE_IMAGES,
     DEFAULT_IMAGE,
     LABELS,
     STRINGS,
-    TYPE_UNKNOWN,
     SUPPORTED_LANGUAGES,
-    resolve_language,
+    TYPE_IMAGES,
+    TYPE_ORDER,
+    TYPE_UNKNOWN,
     build_keyword_index,
+    resolve_language,
 )
+from .parser import KeywordMatcher, event_days, parse_event_time
 
 _LOGGER = logging.getLogger(__name__)
 
-# The sensor's state realistically only changes once a day (when the
-# calendar entry for the next collection is added, the evening before).
-# Polling every few seconds (the historical default) needlessly calls
-# calendar.get_events very often; 30 minutes keeps the sensor responsive
-# after a restart or a new calendar entry without hammering the calendar
-# integration. Still overridable per-entry with `scan_interval:` in YAML.
+# Safety-net polling. The sensor is ALSO refreshed right after midnight and
+# whenever the calendar entity changes state, so it no longer waits up to
+# 30 minutes to notice the new day or a just-started event.
 SCAN_INTERVAL = timedelta(minutes=30)
 
-# Built once at import time: merges keywords from every supported source
-# language, sorted longest-first so multi-word phrases are tried before
-# their shorter substrings (e.g. "rifiuto secco" before "secco").
-KEYWORD_INDEX = build_keyword_index()
-SORTED_KEYWORDS = sorted(KEYWORD_INDEX.keys(), key=len, reverse=True)
+# Max lookahead: get_events over a very long window is pointless and slow.
+MAX_LOOKAHEAD_DAYS = 60
 
-# Punctuation/conjunctions that may separate multiple waste types written in
-# a single calendar event summary (e.g. "Carta, Vetro" or "Carta e Vetro").
-_SEPARATOR_RE = re.compile(r"[,;/+&]")
-_CONJUNCTION_RE = re.compile(r"\b(e|and)\b")
-_WHITESPACE_RE = re.compile(r"\s+")
+_TYPE_RANK = {code: idx for idx, code in enumerate(TYPE_ORDER)}
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+
+def _type_codes(value: Any) -> list[str]:
+    """Validate the value of a custom keyword: one code or a list of codes."""
+    codes = value if isinstance(value, list) else [value]
+    return [cv.slug(str(code).strip().lower()) for code in codes]
+
+
+PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_CALENDAR): cv.entity_id,
+        vol.Required(CONF_CALENDAR): cv.entity_domain(CALENDAR_DOMAIN),
         vol.Optional(CONF_NAME): cv.string,
-        vol.Optional(CONF_LOOKAHEAD_DAYS, default=DEFAULT_LOOKAHEAD_DAYS): cv.positive_int,
-        vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE_OPTION): vol.In(
-            (CONF_LANGUAGE_AUTO,) + SUPPORTED_LANGUAGES
+        vol.Optional(CONF_LOOKAHEAD_DAYS, default=DEFAULT_LOOKAHEAD_DAYS): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=MAX_LOOKAHEAD_DAYS)
         ),
+        vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE_OPTION): vol.In(
+            (CONF_LANGUAGE_AUTO, *SUPPORTED_LANGUAGES)
+        ),
+        vol.Optional(CONF_KEYWORDS, default={}): {cv.string: _type_codes},
     }
 )
+
 
 async def async_setup_platform(
     hass: HomeAssistant,
@@ -84,88 +97,117 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up the Raccolta Rifiuti sensor platform."""
-    calendar_entity_id = config[CONF_CALENDAR]
-    sensor_name = config.get(CONF_NAME)  # None => use localized default name
-    lookahead_days = config[CONF_LOOKAHEAD_DAYS]
-    language = config[CONF_LANGUAGE]
+    """Set up the Raccolta Rifiuti sensor platform.
 
-    _LOGGER.debug("Setting up Raccolta Rifiuti sensor for calendar: %s", calendar_entity_id)
+    The entity is always created, even if the calendar is not loaded yet
+    (CalDAV / Google / Local Calendar may come up after the sensor platform):
+    it stays unavailable and refreshes itself as soon as the calendar appears.
+    Previously the sensor was silently never created in that case.
+    """
+    keywords = build_keyword_index()
+    for phrase, codes in config[CONF_KEYWORDS].items():
+        keywords[phrase] = tuple(codes)
 
-    async def _async_finalize_setup(_event=None) -> None:
-        """Finalize setup after calendar entity might be ready."""
-        _LOGGER.debug("Attempting to finalize Raccolta Rifiuti sensor setup.")
-        if hass.states.get(calendar_entity_id) is None:
-            _LOGGER.error(
-                "Calendar entity %s STILL not found after Home Assistant start. "
-                "Please check your configuration and calendar integration.",
-                calendar_entity_id,
+    async_add_entities(
+        [
+            RaccoltaRifiutiSensor(
+                name=config.get(CONF_NAME),
+                calendar_entity_id=config[CONF_CALENDAR],
+                lookahead_days=config[CONF_LOOKAHEAD_DAYS],
+                language=config[CONF_LANGUAGE],
+                matcher=KeywordMatcher(keywords),
             )
-            return
-
-        _LOGGER.info("Calendar entity %s found. Adding Raccolta Rifiuti sensor.", calendar_entity_id)
-        sensor = RaccoltaRifiutiSensor(hass, sensor_name, calendar_entity_id, lookahead_days, language)
-        async_add_entities([sensor], True)
-
-    if hass.states.get(calendar_entity_id) is not None:
-        _LOGGER.debug("Calendar entity %s found immediately.", calendar_entity_id)
-        await _async_finalize_setup()
-    else:
-        # Normale durante l'avvio: la piattaforma sensor viene spesso
-        # inizializzata prima che l'entità calendario sia pronta. Non è un
-        # errore: viene ritentato automaticamente a EVENT_HOMEASSISTANT_START.
-        _LOGGER.info(
-            "Calendar entity %s not found immediately (normale in fase di avvio). "
-            "Will attempt setup again after Home Assistant starts.",
-            calendar_entity_id,
-        )
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_finalize_setup)
+        ],
+        True,
+    )
 
 
 class RaccoltaRifiutiSensor(SensorEntity):
-    """Representation of a Raccolta Rifiuti Sensor."""
+    """Today's waste collection(s) plus the next one within lookahead_days."""
+
+    _attr_icon = "mdi:trash-can-outline"
 
     def __init__(
         self,
-        hass: HomeAssistant,
         name: str | None,
         calendar_entity_id: str,
         lookahead_days: int,
         language: str,
-    ):
-        """Initialize the sensor."""
-        self.hass = hass
-        self._configured_name = name  # None => derive from display language
+        matcher: KeywordMatcher,
+    ) -> None:
+        self._configured_name = name  # None => localized default name
         self._calendar_entity_id = calendar_entity_id
         self._lookahead_days = lookahead_days
         self._configured_language = language  # "auto", "it" or "en"
+        self._matcher = matcher
 
+        # Unchanged from previous versions: keeps the entity registry entry.
         self._attr_unique_id = f"{DOMAIN}_{calendar_entity_id}_next_collection"
-        self._attr_icon = "mdi:trash-can-outline"
+        self._attr_available = False
+        self._attr_native_value = None
+        self._attr_extra_state_attributes = self._default_attributes()
+        self._attr_entity_picture = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
+        self._last_problem: str | None = None
 
-        self._state = self._strings()["no_event"]
-        self._attributes = self._default_attributes()
-        self._entity_picture_path = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
+    # ------------------------------------------------------------------ HA hooks
+
+    async def async_added_to_hass(self) -> None:
+        """Refresh on calendar changes and right after midnight."""
+
+        @callback
+        def _calendar_changed(event: Event[EventStateChangedData]) -> None:
+            new_state = event.data["new_state"]
+            if new_state is None or new_state.state == STATE_UNAVAILABLE:
+                return
+            old_state = event.data["old_state"]
+            # Skip pure attribute churn of an unchanged event.
+            if (
+                old_state is not None
+                and old_state.state == new_state.state
+                and old_state.attributes.get("message") == new_state.attributes.get("message")
+                and old_state.attributes.get("start_time")
+                == new_state.attributes.get("start_time")
+                and self.available
+            ):
+                return
+            self.async_schedule_update_ha_state(True)
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._calendar_entity_id], _calendar_changed
+            )
+        )
+
+        @callback
+        def _new_day(_now: datetime) -> None:
+            self.async_schedule_update_ha_state(True)
+
+        self.async_on_remove(
+            async_track_time_change(self.hass, _new_day, hour=0, minute=0, second=5)
+        )
+
+    # ------------------------------------------------------------- localization
 
     def _language(self) -> str:
-        """Return the display language actually in effect.
-
-        "auto" follows Home Assistant's configured language live (it is
-        re-evaluated on every access, so changing HA's language updates the
-        sensor's texts on the next update without restarting it).
-        """
         if self._configured_language != CONF_LANGUAGE_AUTO:
             return self._configured_language
         return resolve_language(getattr(self.hass.config, "language", None))
 
-    def _strings(self) -> dict:
+    def _strings(self) -> dict[str, str]:
         return STRINGS[self._language()]
 
-    def _labels(self) -> dict:
-        return LABELS[self._language()]
+    @property
+    def name(self) -> str:
+        if self._configured_name:
+            return self._configured_name
+        if self.hass is None:  # before being added to HA
+            return STRINGS["it"]["default_name"]
+        return self._strings()["default_name"]
 
-    def _default_attributes(self) -> dict:
-        """Return default attributes."""
+    # --------------------------------------------------------------- helpers
+
+    @staticmethod
+    def _default_attributes() -> dict[str, Any]:
         return {
             ATTR_EVENT_SUMMARY: None,
             ATTR_EVENT_START_TIME: None,
@@ -179,283 +221,302 @@ class RaccoltaRifiutiSensor(SensorEntity):
             "location": None,
         }
 
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        if self._configured_name:
-            return self._configured_name
-        return self._strings()["default_name"]
+    def _label(self, code: str) -> str:
+        labels = LABELS[self._language()]
+        return labels.get(code) or code.replace("_", " ").capitalize()
 
-    @property
-    def state(self) -> str:
-        """Return the state of the sensor (tipi di raccolta di OGGI, combinati)."""
-        return self._state
+    def _set_problem(self, key: str, message: str, *args: Any) -> None:
+        """Mark the sensor unavailable, logging each distinct problem once."""
+        if self._last_problem != key:
+            _LOGGER.warning(message, *args)
+            self._last_problem = key
+        self._attr_available = False
+        self._attr_native_value = None
+        self._attr_extra_state_attributes = self._default_attributes()
+        self._attr_entity_picture = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
 
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        return self._attributes
+    def _analyze_day(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+        """Recognize the waste types of the events of a single day."""
+        codes: set[str] = set()
+        summaries: list[str] = []
+        for event in events:
+            summary = event["summary"]
+            summaries.append(summary)
+            found = self._matcher.match(summary)
+            if not found:
+                _LOGGER.warning(
+                    "Nessun tipo di rifiuto riconosciuto in '%s' (puoi aggiungerlo "
+                    "con l'opzione 'keywords')",
+                    summary,
+                )
+                found = [TYPE_UNKNOWN]
+            codes.update(found)
 
-    @property
-    def entity_picture(self) -> str | None:
-        """Return the entity picture."""
-        return self._entity_picture_path
-
-    @staticmethod
-    def _normalize_summary(event_summary: str) -> str:
-        """Normalize a (already lowercased) summary for keyword matching.
-
-        Replaces separators such as commas, slashes and "and"/"e" with
-        spaces, so that a single calendar event listing several waste
-        types (e.g. "Carta, Vetro" or "Carta e Vetro") has every type
-        recognized, not just the last one.
-        """
-        normalized = _SEPARATOR_RE.sub(" ", event_summary)
-        normalized = _CONJUNCTION_RE.sub(" ", normalized)
-        normalized = _WHITESPACE_RE.sub(" ", normalized).strip()
-        return normalized
-
-    def _analyze_day_events(self, day_events: list) -> dict:
-        """Match a single day's calendar events against known waste-type keywords.
-
-        Shared between "today" and the look-ahead search below, so both use
-        exactly the same recognition logic.
-        """
-        labels = self._labels()
-
-        found_codes = set()
-        found_images = set()
-        event_summaries = []
-        first_event_start_iso = None
-        first_event_description = None
-        first_event_location = None
-
-        for idx, event in enumerate(day_events):
-            raw_summary = event.get('summary', '')
-            event_summary = raw_summary.lower().strip()
-            if not event_summary:
-                _LOGGER.debug("Skipping event with empty summary: %s", event)
-                continue
-
-            event_summaries.append(raw_summary)
-
-            if idx == 0:
-                try:
-                    first_event_start_iso = event['start'].isoformat()
-                    first_event_description = event.get('description')
-                    first_event_location = event.get('location')
-                except Exception as e:
-                    _LOGGER.warning("Could not format start time or get details for first event: %s", e)
-
-            matched_this_event = False
-            normalized_summary = self._normalize_summary(event_summary)
-            summary_for_check = f" {normalized_summary} "
-
-            for keyword in SORTED_KEYWORDS:
-                if f" {keyword} " in summary_for_check or \
-                    normalized_summary.startswith(keyword + " ") or \
-                    normalized_summary.endswith(" " + keyword) or \
-                    normalized_summary == keyword:
-
-                    canonical_type = KEYWORD_INDEX[keyword]
-                    image_file = TYPE_IMAGES.get(canonical_type, DEFAULT_IMAGE)
-
-                    _LOGGER.debug("Keyword '%s' matched in summary '%s'. Type: %s, Image: %s",
-                                  keyword, raw_summary, canonical_type, image_file)
-                    found_codes.add(canonical_type)
-                    found_images.add(image_file)
-                    matched_this_event = True
-                    # Keep scanning: a single event may list more than one type.
-                    summary_for_check = summary_for_check.replace(f" {keyword} ", "  ", 1)
-
-            if not matched_this_event:
-                _LOGGER.warning("No keyword matched for event summary: '%s'. Adding as unknown.", raw_summary)
-                found_codes.add(TYPE_UNKNOWN)
-
-        sorted_codes = sorted(c for c in found_codes if c != TYPE_UNKNOWN)
-        if TYPE_UNKNOWN in found_codes:
-            sorted_codes.append(TYPE_UNKNOWN)
-
-        sorted_labels = [labels.get(code, code.capitalize()) for code in sorted_codes]
-
+        ordered = sorted(
+            codes,
+            key=lambda c: (c == TYPE_UNKNOWN, _TYPE_RANK.get(c, len(_TYPE_RANK)), c),
+        )
+        first = events[0]
         return {
-            "codes": sorted_codes,
-            "labels": sorted_labels,
-            "images": sorted(found_images),
-            "event_summaries": event_summaries,
-            "first_event_start_iso": first_event_start_iso,
-            "first_event_description": first_event_description,
-            "first_event_location": first_event_location,
+            "codes": ordered,
+            "labels": [self._label(code) for code in ordered],
+            "image": next(
+                (TYPE_IMAGES[c] for c in ordered if c in TYPE_IMAGES), DEFAULT_IMAGE
+            ),
+            "summaries": summaries,
+            "start": first["start"].isoformat(),
+            "description": first.get("description"),
+            "location": first.get("location"),
         }
 
+    async def _async_fetch_events(self, start: datetime, end: datetime) -> list[dict]:
+        response = await self.hass.services.async_call(
+            CALENDAR_DOMAIN,
+            "get_events",
+            {
+                "entity_id": self._calendar_entity_id,
+                "start_date_time": start.isoformat(),
+                "end_date_time": end.isoformat(),
+            },
+            blocking=True,
+            return_response=True,
+        )
+        entity_response = (response or {}).get(self._calendar_entity_id) or {}
+        return list(entity_response.get("events") or [])
+
+    # ---------------------------------------------------------------- update
+
     async def async_update(self) -> None:
-        """Fetch new state data using the calendar.get_events service.
-
-        Fetches one combined window from today through
-        today + lookahead_days (inclusive) in a single service call, so
-        `lookahead_days` is now actually used: if nothing is scheduled
-        today, the sensor looks ahead and reports the next collection it
-        finds within that window via days_remaining/next_collection_*.
-        `state`/`collection_types` keep describing strictly TODAY, so
-        existing automations relying on them are unaffected.
-        """
-        _LOGGER.debug("Updating Raccolta Rifiuti sensor by calling calendar.get_events for %s", self._calendar_entity_id)
-
-        strings = self._strings()
-
-        calendar_entity_state = self.hass.states.get(self._calendar_entity_id)
-        if calendar_entity_state is None:
-            _LOGGER.warning("Calendar entity %s not found during update.", self._calendar_entity_id)
-            self._state = strings["calendar_not_found"]
-            self._attributes = self._default_attributes()
-            self._entity_picture_path = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
+        """Read today .. today+lookahead_days from the calendar in one call."""
+        if self.hass.states.get(self._calendar_entity_id) is None:
+            self._set_problem(
+                "missing",
+                "Calendario %s non (ancora) disponibile: il sensore resterà "
+                "'non disponibile' finché il calendario non viene caricato",
+                self._calendar_entity_id,
+            )
             return
 
         today = dt_util.now().date()
-        start_date = dt_util.start_of_local_day()  # Inizia da mezzanotte locale (oggi)
-        # Copre l'intera finestra di lookahead in un'unica chiamata al servizio.
-        end_date = dt_util.start_of_local_day(
-            start_date + timedelta(days=self._lookahead_days + 1)
-        ) - timedelta(seconds=1)
-        _LOGGER.debug("Fetching events between %s and %s", start_date.isoformat(), end_date.isoformat())
+        last_day = today + timedelta(days=self._lookahead_days)
+        window_start = dt_util.start_of_local_day(today)
+        window_end = dt_util.start_of_local_day(last_day + timedelta(days=1))
 
         try:
-            service_data = {
-                "entity_id": self._calendar_entity_id,
-                "start_date_time": start_date.isoformat(),
-                "end_date_time": end_date.isoformat(),
-            }
-
-            response = await self.hass.services.async_call(
-                CALENDAR_DOMAIN,
-                "get_events",
-                service_data,
-                blocking=True,
-                return_response=True,
+            raw_events = await self._async_fetch_events(window_start, window_end)
+        except Exception as err:  # noqa: BLE001 - any calendar backend error
+            self._set_problem(
+                "service",
+                "Errore leggendo gli eventi di %s: %s",
+                self._calendar_entity_id,
+                err,
             )
-
-            calendar_events = []
-            if response and self._calendar_entity_id in response:
-                calendar_events_response = response[self._calendar_entity_id]
-                if isinstance(calendar_events_response, dict) and "events" in calendar_events_response:
-                    calendar_events = calendar_events_response["events"]
-                elif isinstance(calendar_events_response, list):
-                    calendar_events = calendar_events_response
-                else:
-                    _LOGGER.debug("Response format for %s doesn't contain a list or 'events' dict: %s", self._calendar_entity_id, response)
-            elif isinstance(response, dict) and "events" in response:
-                calendar_events = response["events"]
-            else:
-                _LOGGER.debug("No events found or unexpected response structure from calendar.get_events for %s: %s", self._calendar_entity_id, response)
-
-        except Exception as e:
-            _LOGGER.error(
-                "Error calling calendar.get_events service for %s: %s",
-                self._calendar_entity_id, e, exc_info=True
-            )
-            self._state = strings["service_error"]
-            self._attributes = self._default_attributes()
-            self._entity_picture_path = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
             return
 
-        _LOGGER.debug("Found %d raw events for %s via service call", len(calendar_events), self._calendar_entity_id)
+        if self._last_problem is not None:
+            _LOGGER.info("Calendario %s di nuovo disponibile", self._calendar_entity_id)
+        self._last_problem = None
+        self._attr_available = True
 
-        events_by_date: dict = {}
-        max_date = today + timedelta(days=self._lookahead_days)
-
-        for event in calendar_events:
-            try:
-                start_val = event.get('start')
-                event_start_dt = None
-
-                if isinstance(start_val, str):
-                    if 'T' in start_val:
-                        parsed_dt = dt_util.parse_datetime(start_val)
-                        if parsed_dt:
-                            event_start_dt = dt_util.as_local(parsed_dt)
-                    else:
-                        parsed_date = dt_util.parse_date(start_val)
-                        if parsed_date:
-                            event_start_dt = dt_util.start_of_local_day(parsed_date)
-                elif isinstance(start_val, datetime):
-                    event_start_dt = dt_util.as_local(start_val)
-                elif isinstance(start_val, date):
-                    event_start_dt = dt_util.start_of_local_day(start_val)
-
-                if event_start_dt is None:
-                    _LOGGER.warning("Could not parse start time for event, skipping: %s", event)
-                    continue
-
-                event_date = event_start_dt.date()
-                if event_date < today or event_date > max_date:
-                    continue
-
-                processed_event = {
-                    'summary': event.get('summary') or event.get('title', ''),
-                    'start': event_start_dt,
-                    'end': event.get('end'),
-                    'location': event.get('location'),
-                    'description': event.get('description'),
-                }
-                events_by_date.setdefault(event_date, []).append(processed_event)
-                _LOGGER.debug("Adding event '%s' on %s to process list", processed_event['summary'], event_date)
-
-            except (KeyError, TypeError, ValueError) as e:
-                _LOGGER.warning("Could not process event data, skipping. Error: %s, Event: %s", e, event)
+        events_by_day: dict[date, list[dict[str, Any]]] = {}
+        for raw in raw_events:
+            summary = (raw.get("summary") or raw.get("title") or "").strip()
+            if not summary:
                 continue
+            start, _all_day = parse_event_time(raw.get("start"))
+            if start is None:
+                _LOGGER.debug("Evento senza data di inizio valida, ignorato: %s", raw)
+                continue
+            end, _ = parse_event_time(raw.get("end"))
+            event = {
+                "summary": summary,
+                "start": start,
+                "description": raw.get("description"),
+                "location": raw.get("location"),
+            }
+            for day in event_days(start, end, today, last_day):
+                events_by_day.setdefault(day, []).append(event)
 
-        today_events = events_by_date.get(today, [])
+        for day_events in events_by_day.values():
+            day_events.sort(key=lambda ev: ev["start"])
 
+        attributes = self._default_attributes()
+        picture = DEFAULT_IMAGE
+
+        today_events = events_by_day.get(today)
         if today_events:
-            info = self._analyze_day_events(today_events)
-
-            state_text = ", ".join(info["labels"])
-            if len(state_text) > 255:
-                state_text = state_text[:252] + "..."
-            self._state = state_text
-
-            self._attributes = {
-                ATTR_EVENT_SUMMARY: ", ".join(info["event_summaries"])[:1024],
-                ATTR_EVENT_START_TIME: info["first_event_start_iso"],
-                ATTR_COLLECTION_TYPES: info["labels"],
-                ATTR_COLLECTION_TYPE_CODES: info["codes"],
-                ATTR_DAYS_REMAINING: 0,
-                ATTR_NEXT_COLLECTION_DATE: today.isoformat(),
-                ATTR_NEXT_COLLECTION_TYPES: info["labels"],
-                ATTR_NEXT_COLLECTION_TYPE_CODES: info["codes"],
-                "description": info["first_event_description"],
-                "location": info["first_event_location"],
-            }
-
-            if info["images"]:
-                self._entity_picture_path = f"{IMAGE_BASE_PATH}{info['images'][0]}"
-            else:
-                self._entity_picture_path = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
-
-            _LOGGER.debug("Sensor updated for today: state=%s attrs=%s", self._state, self._attributes)
-            return
-
-        # Nessun evento oggi: usa lookahead_days per cercare la prossima
-        # raccolta utile, così l'opzione (prima inutilizzata) ha un effetto.
-        self._state = strings["no_event"]
-        self._attributes = self._default_attributes()
-        self._entity_picture_path = f"{IMAGE_BASE_PATH}{DEFAULT_IMAGE}"
-
-        for day_offset in range(1, self._lookahead_days + 1):
-            target_date = today + timedelta(days=day_offset)
-            day_events = events_by_date.get(target_date)
-            if not day_events:
-                continue
-
-            info = self._analyze_day_events(day_events)
-            self._attributes[ATTR_DAYS_REMAINING] = day_offset
-            self._attributes[ATTR_NEXT_COLLECTION_DATE] = target_date.isoformat()
-            self._attributes[ATTR_NEXT_COLLECTION_TYPES] = info["labels"]
-            self._attributes[ATTR_NEXT_COLLECTION_TYPE_CODES] = info["codes"]
-            _LOGGER.debug(
-                "No collection today; next one found in %d day(s) on %s: %s",
-                day_offset, target_date, info["labels"],
+            info = self._analyze_day(today_events)
+            state = ", ".join(info["labels"])
+            attributes.update(
+                {
+                    ATTR_EVENT_SUMMARY: ", ".join(info["summaries"])[:1024],
+                    ATTR_EVENT_START_TIME: info["start"],
+                    ATTR_COLLECTION_TYPES: info["labels"],
+                    ATTR_COLLECTION_TYPE_CODES: info["codes"],
+                    "description": info["description"],
+                    "location": info["location"],
+                }
             )
-            break
+            picture = info["image"]
+        else:
+            state = self._strings()["no_event"]
 
-        _LOGGER.debug("Sensor updated (no event today): state=%s attrs=%s", self._state, self._attributes)
+        # Next collection: today if there is one, otherwise the first day
+        # with events within lookahead_days.
+        for offset in range(self._lookahead_days + 1):
+            day = today + timedelta(days=offset)
+            if day_events := events_by_day.get(day):
+                info = self._analyze_day(day_events)
+                attributes.update(
+                    {
+                        ATTR_DAYS_REMAINING: offset,
+                        ATTR_NEXT_COLLECTION_DATE: day.isoformat(),
+                        ATTR_NEXT_COLLECTION_TYPES: info["labels"],
+                        ATTR_NEXT_COLLECTION_TYPE_CODES: info["codes"],
+                    }
+                )
+                break
+
+        self._attr_native_value = state if len(state) <= 255 else state[:252] + "..."
+        self._attr_extra_state_attributes = attributes
+        self._attr_entity_picture = f"{IMAGE_BASE_PATH}{picture}"
+
+
+# =========================================================================
+# UI (config entry) mode: rule-based schedule + optional exception calendar
+# =========================================================================
+
+from homeassistant.components.sensor import SensorDeviceClass  # noqa: E402
+from homeassistant.config_entries import ConfigEntry  # noqa: E402
+from homeassistant.const import UnitOfTime  # noqa: E402
+
+from .coordinator import RaccoltaCoordinator  # noqa: E402
+from .entity import RaccoltaEntity, join_it, picture  # noqa: E402
+from .schedule import describe_rule  # noqa: E402
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    coordinator: RaccoltaCoordinator = entry.runtime_data
+    entities: list[SensorEntity] = [
+        DaySensor(coordinator, 0),
+        DaySensor(coordinator, 1),
+        NextCollectionSensor(coordinator),
+    ]
+    entities += [TypeSensor(coordinator, code) for code in coordinator.active_types]
+    async_add_entities(entities)
+
+
+class DaySensor(RaccoltaEntity, SensorEntity):
+    """What is collected today (offset 0) / tomorrow (offset 1).
+
+    The "tomorrow" sensor exposes the same attributes as the legacy YAML
+    sensor (collection_types, collection_type_codes...), so the existing
+    blueprints and Lovelace cards work by just selecting it.
+    """
+
+    _attr_icon = "mdi:trash-can-outline"
+
+    def __init__(self, coordinator: RaccoltaCoordinator, offset: int) -> None:
+        key = "today" if offset == 0 else "tomorrow"
+        super().__init__(coordinator, key)
+        self._offset = offset
+        self._attr_translation_key = key
+
+    def _codes(self) -> list[str]:
+        data = self.coordinator.data
+        return data.on(data.today + timedelta(days=self._offset))
+
+    @property
+    def native_value(self) -> str:
+        codes = self._codes()
+        if not codes:
+            return self.text("no_event")
+        value = ", ".join(self.labels(codes))
+        return value if len(value) <= 255 else value[:252] + "..."
+
+    @property
+    def entity_picture(self) -> str:
+        return picture(self._codes())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        day = data.today + timedelta(days=self._offset)
+        codes = self._codes()
+        labels = self.labels(codes)
+        conj = "e" if self.lang == "it" else "and"
+        return {
+            "date": day.isoformat(),
+            ATTR_COLLECTION_TYPES: labels,
+            ATTR_COLLECTION_TYPE_CODES: codes,
+            "message": join_it(labels, conj),
+            "exceptions": data.exceptions.get(day, []),
+        }
+
+
+class NextCollectionSensor(RaccoltaEntity, SensorEntity):
+    """Date of the next collection (today included)."""
+
+    _attr_translation_key = "next"
+    _attr_device_class = SensorDeviceClass.DATE
+
+    def __init__(self, coordinator: RaccoltaCoordinator) -> None:
+        super().__init__(coordinator, "next")
+
+    @property
+    def native_value(self) -> date | None:
+        data = self.coordinator.data
+        return data.next_collection(data.today)[0]
+
+    @property
+    def entity_picture(self) -> str:
+        data = self.coordinator.data
+        return picture(data.next_collection(data.today)[1])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        day, codes = data.next_collection(data.today)
+        return {
+            ATTR_DAYS_REMAINING: (day - data.today).days if day else None,
+            ATTR_NEXT_COLLECTION_TYPES: self.labels(codes),
+            ATTR_NEXT_COLLECTION_TYPE_CODES: codes,
+            "exceptions_calendar_ok": data.exceptions_ok,
+        }
+
+
+class TypeSensor(RaccoltaEntity, SensorEntity):
+    """Days until the next collection of one waste type (like HassioHelp)."""
+
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: RaccoltaCoordinator, code: str) -> None:
+        super().__init__(coordinator, f"type_{code}")
+        self._code = code
+        self._attr_translation_key = f"type_{code}" if code in TYPE_IMAGES else "type_custom"
+        self._attr_translation_placeholders = {"type": code.capitalize()}
+        self._attr_entity_picture = picture([code])
+
+    def _dates(self) -> list[date]:
+        data = self.coordinator.data
+        return data.next_dates(self._code, data.today, 5)
+
+    @property
+    def native_value(self) -> int | None:
+        dates = self._dates()
+        return (dates[0] - self.coordinator.data.today).days if dates else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        dates = self._dates()
+        return {
+            "code": self._code,
+            "label": self.label(self._code),
+            "next_date": dates[0].isoformat() if dates else None,
+            "upcoming": [d.isoformat() for d in dates],
+            "rule": self.coordinator.rule_text.get(self._code, ""),
+            "rule_description": describe_rule(self.coordinator.rules.get(self._code, [])),
+        }

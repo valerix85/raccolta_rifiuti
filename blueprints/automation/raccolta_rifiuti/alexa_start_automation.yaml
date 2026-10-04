@@ -2,6 +2,9 @@
 blueprint:
   name: Avvia Annuncio raccolta tramite Alexa
   domain: automation
+  source_url: https://github.com/valerix85/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/alexa_start_automation.yaml
+  homeassistant:
+    min_version: 2024.8.0
   input:
     toggle_entity:
       name: Interruttore virtuale da Alexa
