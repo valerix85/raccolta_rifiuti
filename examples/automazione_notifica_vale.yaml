@@ -1,8 +1,8 @@
 # Equivalente delle notifiche del package HassioHelp:
-# ore 19:00 la sera prima -> Telegram (2 chat), Google "salotto", Alexa "cucina", script.my_notify
+# ore 19:00 la sera prima -> Telegram (2 chat), Echo Cucina (Alexa Devices), script.my_notify
 # Da incollare in Impostazioni > Automazioni > nuova > Modifica in YAML.
-# Controlla gli entity_id dei media player (media_player.salotto / media_player.cucina)
-# e del motore TTS (tts.google_translate_it_com).
+# Verifica l'entity_id del notificatore "Parla"/"Annuncio" dell'Echo
+# (Impostazioni > Dispositivi > Echo Cucina > Notificatori > ingranaggio).
 alias: Avviso raccolta differenziata
 description: La sera prima della raccolta avvisa cosa esporre
 triggers:
@@ -20,27 +20,32 @@ actions:
         {% set m = state_attr('sensor.raccolta_differenziata_domani', 'message') %}
         {{ 'Domani ritirano: ' ~ m if m else "Domani non c'è nessuna raccolta" }}
   - action: notify.telegram_spazza
+    continue_on_error: true
     data:
       title: "*Differenziata*"
       message: "{{ testo }}"
   - action: notify.telegram_spazza2
+    continue_on_error: true
     data:
       title: "*Differenziata*"
       message: "{{ testo }}"
-  - action: tts.speak
+  # Echo con l'integrazione ufficiale "Alexa Devices": notificatore "Parla"
+  # (per il suono di avviso usa quello "Annuncio").
+  - action: notify.send_message
     continue_on_error: true
     target:
-      entity_id: tts.google_translate_it_com
+      entity_id: notify.echo_cucina_speak
     data:
-      media_player_entity_id: media_player.salotto
       message: "{{ testo }}"
-  - action: notify.alexa_media
-    continue_on_error: true
-    data:
-      target: media_player.cucina
-      message: "{{ testo }}"
-      data:
-        type: tts
+  # Altoparlante Google/Nest (se presente): tts.speak funziona solo con
+  # media player che riproducono file audio, NON con gli Echo.
+  # - action: tts.speak
+  #   continue_on_error: true
+  #   target:
+  #     entity_id: tts.home_assistant_cloud
+  #   data:
+  #     media_player_entity_id: media_player.salotto
+  #     message: "{{ testo }}"
   - action: script.my_notify
     continue_on_error: true
     data:
