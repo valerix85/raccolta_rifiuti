@@ -27,7 +27,8 @@ sections:
           <center><b>{{ state_attr('sensor.raccolta_differenziata_domani', 'message') }}</b></center>
           {% else %}
           <center>Domani nessuna raccolta 🎉<br>
-          Prossima: {{ states('sensor.raccolta_differenziata_prossima_raccolta') | as_datetime | as_timestamp | timestamp_custom('%d/%m', true) }}
+          {% set d = states('sensor.raccolta_differenziata_prossima_raccolta') %}
+          Prossima: {{ d[8:10] }}/{{ d[5:7] }}
           ({{ state_attr('sensor.raccolta_differenziata_prossima_raccolta', 'next_collection_types') | join(', ') }})</center>
           {% endif %}
       - type: tile
