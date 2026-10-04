@@ -1,0 +1,129 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Raccolta Rifiuti",
+        "description": "Name of this collection schedule.",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "rules": {
+        "title": "Collection days",
+        "description": "For each type write the collection days (empty = never): `mon,fri` · `-tue` odd weeks, `--tue` even weeks · `2|1|wed` every other Wednesday (2..8 week cycles) · `mon#1` / `mon#ult` first / last Monday of the month · `25/12` yearly · `27/12/2026` once. Exception calendar (optional): an event ON the collection day like \"Organic\" adds, \"No organic\" or \"Cancelled\" removes.\n\n{error}",
+        "data": {
+          "residual": "Residual waste",
+          "organic": "Organic",
+          "paper": "Paper",
+          "plastic": "Plastic",
+          "glass": "Glass",
+          "metal": "Metal",
+          "green": "Green waste",
+          "exceptions_calendar": "Exception calendar"
+        }
+      }
+    },
+    "error": {
+      "invalid_rule": "Invalid rule",
+      "no_rules": "Enter at least one collection day"
+    },
+    "abort": {
+      "already_configured": "Already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Collection days",
+        "description": "For each type write the collection days (empty = never): `mon,fri` · `-tue` odd weeks, `--tue` even weeks · `2|1|wed` every other Wednesday (2..8 week cycles) · `mon#1` / `mon#ult` first / last Monday of the month · `25/12` yearly · `27/12/2026` once. Exception calendar (optional): an event ON the collection day like \"Organic\" adds, \"No organic\" or \"Cancelled\" removes.\n\n{error}",
+        "data": {
+          "residual": "Residual waste",
+          "organic": "Organic",
+          "paper": "Paper",
+          "plastic": "Plastic",
+          "glass": "Glass",
+          "metal": "Metal",
+          "green": "Green waste",
+          "exceptions_calendar": "Exception calendar"
+        }
+      }
+    },
+    "error": {
+      "invalid_rule": "Invalid rule",
+      "no_rules": "Enter at least one collection day"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "today": {
+        "name": "Today"
+      },
+      "tomorrow": {
+        "name": "Tomorrow"
+      },
+      "next": {
+        "name": "Next collection"
+      },
+      "type_custom": {
+        "name": "{type}"
+      },
+      "type_residual": {
+        "name": "Residual waste"
+      },
+      "type_organic": {
+        "name": "Organic"
+      },
+      "type_paper": {
+        "name": "Paper"
+      },
+      "type_plastic": {
+        "name": "Plastic"
+      },
+      "type_glass": {
+        "name": "Glass"
+      },
+      "type_metal": {
+        "name": "Metal"
+      },
+      "type_green": {
+        "name": "Green waste"
+      }
+    },
+    "text": {
+      "rule_custom": {
+        "name": "{type} days"
+      },
+      "rule_residual": {
+        "name": "Residual waste days"
+      },
+      "rule_organic": {
+        "name": "Organic days"
+      },
+      "rule_paper": {
+        "name": "Paper days"
+      },
+      "rule_plastic": {
+        "name": "Plastic days"
+      },
+      "rule_glass": {
+        "name": "Glass days"
+      },
+      "rule_metal": {
+        "name": "Metal days"
+      },
+      "rule_green": {
+        "name": "Green waste days"
+      }
+    },
+    "calendar": {
+      "collections": {
+        "name": "Calendar"
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_rule": {
+      "message": "Invalid rule: {error}"
+    }
+  }
+}

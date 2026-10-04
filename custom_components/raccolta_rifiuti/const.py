@@ -33,3 +33,13 @@ ATTR_DAYS_REMAINING = "days_remaining"
 ATTR_NEXT_COLLECTION_DATE = "next_collection_date"
 ATTR_NEXT_COLLECTION_TYPES = "next_collection_types"
 ATTR_NEXT_COLLECTION_TYPE_CODES = "next_collection_type_codes"
+
+# --- UI (config entry) mode -------------------------------------------------
+PLATFORMS_ENTRY = ["sensor", "calendar", "text"]
+
+CONF_EXCEPTIONS_CALENDAR = "exceptions_calendar"
+CONF_RULES = "rules"
+DEFAULT_ENTRY_NAME = "Raccolta Differenziata"
+
+# How many days ahead the coordinator computes (sensors, calendar, exceptions).
+HORIZON_DAYS = 62

@@ -32,3 +32,11 @@ async def test_blueprint(hass, path):
     conf["id"] = "t"
     res = await async_validate_config_item(hass, "automation.t", conf)
     assert res is not None and res.validation_error is None, res.validation_error
+
+
+async def test_example_automation(hass):
+    path = BP_DIR.parents[2] / "examples/automazione_notifica_vale.yaml"
+    conf = load_yaml(path)
+    conf["id"] = "x"
+    res = await async_validate_config_item(hass, "automation.x", conf)
+    assert res.validation_error is None, res.validation_error

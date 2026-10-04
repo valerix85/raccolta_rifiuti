@@ -380,3 +380,143 @@ class RaccoltaRifiutiSensor(SensorEntity):
         self._attr_native_value = state if len(state) <= 255 else state[:252] + "..."
         self._attr_extra_state_attributes = attributes
         self._attr_entity_picture = f"{IMAGE_BASE_PATH}{picture}"
+
+
+# =========================================================================
+# UI (config entry) mode: rule-based schedule + optional exception calendar
+# =========================================================================
+
+from homeassistant.components.sensor import SensorDeviceClass  # noqa: E402
+from homeassistant.config_entries import ConfigEntry  # noqa: E402
+from homeassistant.const import UnitOfTime  # noqa: E402
+
+from .coordinator import RaccoltaCoordinator  # noqa: E402
+from .entity import RaccoltaEntity, join_it, picture  # noqa: E402
+from .schedule import describe_rule  # noqa: E402
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    coordinator: RaccoltaCoordinator = entry.runtime_data
+    entities: list[SensorEntity] = [
+        DaySensor(coordinator, 0),
+        DaySensor(coordinator, 1),
+        NextCollectionSensor(coordinator),
+    ]
+    entities += [TypeSensor(coordinator, code) for code in coordinator.active_types]
+    async_add_entities(entities)
+
+
+class DaySensor(RaccoltaEntity, SensorEntity):
+    """What is collected today (offset 0) / tomorrow (offset 1).
+
+    The "tomorrow" sensor exposes the same attributes as the legacy YAML
+    sensor (collection_types, collection_type_codes...), so the existing
+    blueprints and Lovelace cards work by just selecting it.
+    """
+
+    _attr_icon = "mdi:trash-can-outline"
+
+    def __init__(self, coordinator: RaccoltaCoordinator, offset: int) -> None:
+        key = "today" if offset == 0 else "tomorrow"
+        super().__init__(coordinator, key)
+        self._offset = offset
+        self._attr_translation_key = key
+
+    def _codes(self) -> list[str]:
+        data = self.coordinator.data
+        return data.on(data.today + timedelta(days=self._offset))
+
+    @property
+    def native_value(self) -> str:
+        codes = self._codes()
+        if not codes:
+            return self.text("no_event")
+        value = ", ".join(self.labels(codes))
+        return value if len(value) <= 255 else value[:252] + "..."
+
+    @property
+    def entity_picture(self) -> str:
+        return picture(self._codes())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        day = data.today + timedelta(days=self._offset)
+        codes = self._codes()
+        labels = self.labels(codes)
+        conj = "e" if self.lang == "it" else "and"
+        return {
+            "date": day.isoformat(),
+            ATTR_COLLECTION_TYPES: labels,
+            ATTR_COLLECTION_TYPE_CODES: codes,
+            "message": join_it(labels, conj),
+            "exceptions": data.exceptions.get(day, []),
+        }
+
+
+class NextCollectionSensor(RaccoltaEntity, SensorEntity):
+    """Date of the next collection (today included)."""
+
+    _attr_translation_key = "next"
+    _attr_device_class = SensorDeviceClass.DATE
+
+    def __init__(self, coordinator: RaccoltaCoordinator) -> None:
+        super().__init__(coordinator, "next")
+
+    @property
+    def native_value(self) -> date | None:
+        data = self.coordinator.data
+        return data.next_collection(data.today)[0]
+
+    @property
+    def entity_picture(self) -> str:
+        data = self.coordinator.data
+        return picture(data.next_collection(data.today)[1])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        day, codes = data.next_collection(data.today)
+        return {
+            ATTR_DAYS_REMAINING: (day - data.today).days if day else None,
+            ATTR_NEXT_COLLECTION_TYPES: self.labels(codes),
+            ATTR_NEXT_COLLECTION_TYPE_CODES: codes,
+            "exceptions_calendar_ok": data.exceptions_ok,
+        }
+
+
+class TypeSensor(RaccoltaEntity, SensorEntity):
+    """Days until the next collection of one waste type (like HassioHelp)."""
+
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: RaccoltaCoordinator, code: str) -> None:
+        super().__init__(coordinator, f"type_{code}")
+        self._code = code
+        self._attr_translation_key = f"type_{code}" if code in TYPE_IMAGES else "type_custom"
+        self._attr_translation_placeholders = {"type": code.capitalize()}
+        self._attr_entity_picture = picture([code])
+
+    def _dates(self) -> list[date]:
+        data = self.coordinator.data
+        return data.next_dates(self._code, data.today, 5)
+
+    @property
+    def native_value(self) -> int | None:
+        dates = self._dates()
+        return (dates[0] - self.coordinator.data.today).days if dates else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        dates = self._dates()
+        return {
+            "code": self._code,
+            "label": self.label(self._code),
+            "next_date": dates[0].isoformat() if dates else None,
+            "upcoming": [d.isoformat() for d in dates],
+            "rule": self.coordinator.rule_text.get(self._code, ""),
+            "rule_description": describe_rule(self.coordinator.rules.get(self._code, [])),
+        }

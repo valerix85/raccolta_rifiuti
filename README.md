@@ -33,6 +33,63 @@ Video Tutorial YouTube: https://www.youtube.com/watch?v=v-wM2uAQTRg
 
 ---
 
+## 🆕 Novità del fork 2.0: giorni a regole, senza calendario
+
+> Fork di [DomoticaFacile/raccolta_rifiuti](https://github.com/DomoticaFacile/raccolta_rifiuti). La modalità YAML originale (calendario) continua a funzionare identica.
+
+**Installazione del fork con HACS:** HACS → ⋮ → Repository personalizzati → `https://github.com/valerix85/raccolta_rifiuti` (tipo *Integrazione*). Se avevi già la versione di DomoticaFacile, rimuovila prima da HACS (stesso dominio `raccolta_rifiuti`); la configurazione YAML resta valida.
+
+Poi da **Impostazioni → Dispositivi e servizi → Aggiungi integrazione → Raccolta Rifiuti** imposti i giorni come nel package HassioHelp:
+
+| Sintassi | Significato |
+|---|---|
+| `lun,ven` | ogni lunedì e venerdì (anche `lunedì`, `mon`, `friday`) |
+| `-mar` / `--mar` | martedì delle settimane dispari / pari (numerazione come HassioHelp: la prima settimana di gennaio è pari) |
+| `2\|1\|mer` | mercoledì una settimana sì e una no, senza salti a cavallo d'anno (cicli da 2 a 8 settimane, come la versione estesa HassioHelp) |
+| `lun#1`, `lun#ult` | primo / ultimo lunedì del mese |
+| `25/12` | ogni anno il 25 dicembre |
+| `27/12/2026` | una volta sola |
+
+Vengono create (esempio con nome "Raccolta Differenziata"):
+
+- `sensor.raccolta_differenziata_domani` – cosa esporre stasera; ha gli stessi attributi del sensore classico (`collection_types`, `collection_type_codes`) più `message` ("Umido e Carta"), quindi i blueprint funzionano selezionando questo sensore
+- `sensor.raccolta_differenziata_oggi`
+- `sensor.raccolta_differenziata_prossima_raccolta` – data + `days_remaining`
+- un sensore per tipo (es. `sensor.raccolta_differenziata_carta`) con i **giorni mancanti** e le prossime date (`upcoming`)
+- `calendar.raccolta_differenziata` – tutte le raccolte nel calendario di HA
+- un'entità testo per tipo (es. `text.raccolta_differenziata_giorni_carta`) per **cambiare i giorni direttamente dalla dashboard**
+
+### Eccezioni (festività, scioperi, recuperi)
+
+Facoltativo: scegli un calendario (es. un *Calendario locale* "Eccezioni rifiuti") e crea un evento **nel giorno della raccolta**:
+
+- `No umido` / `Umido annullato` → toglie l'umido quel giorno
+- `Raccolta sospesa` / `Nessuna raccolta` → toglie tutto
+- `Recupero umido` / `Plastica e vetro` → aggiunge quei tipi
+
+### Card di esempio
+
+```yaml
+type: grid
+columns: 3
+square: false
+cards:
+  - type: tile
+    entity: sensor.raccolta_differenziata_secco_indifferenziata
+  - type: tile
+    entity: sensor.raccolta_differenziata_umido
+  - type: tile
+    entity: sensor.raccolta_differenziata_carta
+  - type: tile
+    entity: sensor.raccolta_differenziata_plastica
+  - type: tile
+    entity: sensor.raccolta_differenziata_vetro
+  - type: tile
+    entity: sensor.raccolta_differenziata_verde
+```
+
+---
+
 ## ⚙️ Installazione tramite HACS
 
 > 💡 Se non hai HACS, segui [questa guida](https://hacs.xyz/docs/setup/download)

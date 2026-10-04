@@ -6,10 +6,19 @@ import logging
 import os
 import shutil
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN  # noqa: F401  (re-exported for convenience)
+from .const import DOMAIN, PLATFORMS_ENTRY
+from .coordinator import RaccoltaCoordinator
+
+# YAML is still supported for the sensor platform (legacy mode); the
+# integration itself has no top-level YAML configuration.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+type RaccoltaConfigEntry = ConfigEntry[RaccoltaCoordinator]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +65,34 @@ def _copy_images(hass: HomeAssistant) -> None:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the integration (YAML only, see sensor platform)."""
+    """Copy the icons; YAML sensor platform and config entries set up separately."""
     await hass.async_add_executor_job(_copy_images, hass)
     return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: RaccoltaConfigEntry) -> bool:
+    """Set up the rule-based mode created from the UI."""
+    coordinator = RaccoltaCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+    coordinator.async_setup_listeners()
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_ENTRY)
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: RaccoltaConfigEntry) -> None:
+    """Rules changed: refresh in place, reload only if the set of types changed."""
+    coordinator = entry.runtime_data
+    before = set(coordinator.active_types)
+    calendar_before = coordinator.calendar_id
+    coordinator.load_options()
+    if set(coordinator.active_types) != before or coordinator.calendar_id != calendar_before:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    await coordinator.async_refresh()
+    coordinator.async_update_listeners()
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: RaccoltaConfigEntry) -> bool:
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS_ENTRY)

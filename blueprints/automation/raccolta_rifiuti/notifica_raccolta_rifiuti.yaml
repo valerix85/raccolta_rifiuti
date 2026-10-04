@@ -6,12 +6,13 @@ blueprint:
     a un orario a scelta. Nelle azioni puoi usare la variabile {{ messaggio }}
     (es. "Domani si raccoglie: Carta e Vetro.") e {{ raccolta }} (lista dei tipi).
   domain: automation
-  source_url: https://github.com/DomoticaFacile/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/notifica_raccolta_rifiuti.yaml
+  source_url: https://github.com/valerix85/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/notifica_raccolta_rifiuti.yaml
   homeassistant:
     min_version: 2024.8.0
   input:
     sensore_raccolta:
       name: Sensore raccolta rifiuti
+      description: Con la configurazione da interfaccia scegli il sensore "Domani".
       selector:
         entity:
           domain: sensor

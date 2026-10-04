@@ -1,11 +1,17 @@
 {
   "domain": "raccolta_rifiuti",
   "name": "Raccolta Rifiuti",
-  "codeowners": ["@DomoticaFacile"],
-  "dependencies": ["calendar"],
-  "documentation": "https://github.com/DomoticaFacile/raccolta_rifiuti",
+  "codeowners": [
+    "@DomoticaFacile",
+    "@valerix85"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "calendar"
+  ],
+  "documentation": "https://github.com/valerix85/raccolta_rifiuti",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/DomoticaFacile/raccolta_rifiuti/issues",
+  "issue_tracker": "https://github.com/valerix85/raccolta_rifiuti/issues",
   "requirements": [],
-  "version": "1.2.0"
+  "version": "2.0.0"
 }

@@ -5,12 +5,13 @@ blueprint:
     Annuncia cosa verrà raccolto domani, ogni sera a uno o due orari specificati,
     usando Google Home.
   domain: automation
-  source_url: https://github.com/DomoticaFacile/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/annuncio_raccolta_rifiuti_google.yaml
+  source_url: https://github.com/valerix85/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/annuncio_raccolta_rifiuti_google.yaml
   homeassistant:
     min_version: 2024.8.0
   input:
     sensore_raccolta:
       name: Sensore raccolta rifiuti
+      description: Con la configurazione da interfaccia scegli il sensore "Domani".
       selector:
         entity:
           domain: sensor

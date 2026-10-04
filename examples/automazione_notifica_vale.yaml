@@ -1,0 +1,46 @@
+# Equivalente delle notifiche del package HassioHelp:
+# ore 19:00 la sera prima -> Telegram (2 chat), Google "salotto", Alexa "cucina", script.my_notify
+# Da incollare in Impostazioni > Automazioni > nuova > Modifica in YAML.
+# Controlla gli entity_id dei media player (media_player.salotto / media_player.cucina)
+# e del motore TTS (tts.google_translate_it_com).
+alias: Avviso raccolta differenziata
+description: La sera prima della raccolta avvisa cosa esporre
+triggers:
+  - trigger: time
+    at: "19:00:00"
+conditions:
+  - condition: template
+    value_template: >-
+      {{ (state_attr('sensor.raccolta_differenziata_domani', 'collection_types') or []) | length > 0 }}
+actions:
+  - variables:
+      testo: >-
+        Domani ritirano: {{ state_attr('sensor.raccolta_differenziata_domani', 'message') }}
+  - action: notify.telegram_spazza
+    data:
+      title: "*Differenziata*"
+      message: "{{ testo }}"
+  - action: notify.telegram_spazza2
+    data:
+      title: "*Differenziata*"
+      message: "{{ testo }}"
+  - action: tts.speak
+    continue_on_error: true
+    target:
+      entity_id: tts.google_translate_it_com
+    data:
+      media_player_entity_id: media_player.salotto
+      message: "{{ testo }}"
+  - action: notify.alexa_media
+    continue_on_error: true
+    data:
+      target: media_player.cucina
+      message: "{{ testo }}"
+      data:
+        type: tts
+  - action: script.my_notify
+    continue_on_error: true
+    data:
+      title: Differenziata
+      message: "{{ testo }}"
+mode: single

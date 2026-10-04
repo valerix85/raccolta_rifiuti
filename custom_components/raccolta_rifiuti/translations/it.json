@@ -1,0 +1,129 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Raccolta Rifiuti",
+        "description": "Nome del calendario di raccolta (es. Casa, Ufficio).",
+        "data": {
+          "name": "Nome"
+        }
+      },
+      "rules": {
+        "title": "Giorni di raccolta",
+        "description": "Per ogni tipo scrivi i giorni di raccolta (vuoto = mai): `lun,ven` ogni lunedì e venerdì · `-mar` martedì settimane dispari, `--mar` pari (come HassioHelp) · `2|1|mer` mercoledì una settimana sì e una no (cicli 2..8 settimane) · `lun#1` / `lun#ult` primo / ultimo lunedì del mese · `25/12` ogni anno · `27/12/2026` una volta. Calendario eccezioni (facoltativo): un evento NEL GIORNO della raccolta come \"Umido\" aggiunge, \"No umido\" o \"Sospesa\" toglie.\n\n{error}",
+        "data": {
+          "residual": "Secco / Indifferenziata",
+          "organic": "Umido",
+          "paper": "Carta",
+          "plastic": "Plastica",
+          "glass": "Vetro",
+          "metal": "Metallo",
+          "green": "Verde",
+          "exceptions_calendar": "Calendario eccezioni"
+        }
+      }
+    },
+    "error": {
+      "invalid_rule": "Regola non valida",
+      "no_rules": "Inserisci almeno un giorno di raccolta"
+    },
+    "abort": {
+      "already_configured": "Esiste già una configurazione con questo nome"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Giorni di raccolta",
+        "description": "Per ogni tipo scrivi i giorni di raccolta (vuoto = mai): `lun,ven` ogni lunedì e venerdì · `-mar` martedì settimane dispari, `--mar` pari (come HassioHelp) · `2|1|mer` mercoledì una settimana sì e una no (cicli 2..8 settimane) · `lun#1` / `lun#ult` primo / ultimo lunedì del mese · `25/12` ogni anno · `27/12/2026` una volta. Calendario eccezioni (facoltativo): un evento NEL GIORNO della raccolta come \"Umido\" aggiunge, \"No umido\" o \"Sospesa\" toglie.\n\n{error}",
+        "data": {
+          "residual": "Secco / Indifferenziata",
+          "organic": "Umido",
+          "paper": "Carta",
+          "plastic": "Plastica",
+          "glass": "Vetro",
+          "metal": "Metallo",
+          "green": "Verde",
+          "exceptions_calendar": "Calendario eccezioni"
+        }
+      }
+    },
+    "error": {
+      "invalid_rule": "Regola non valida",
+      "no_rules": "Inserisci almeno un giorno di raccolta"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "today": {
+        "name": "Oggi"
+      },
+      "tomorrow": {
+        "name": "Domani"
+      },
+      "next": {
+        "name": "Prossima raccolta"
+      },
+      "type_custom": {
+        "name": "{type}"
+      },
+      "type_residual": {
+        "name": "Secco / Indifferenziata"
+      },
+      "type_organic": {
+        "name": "Umido"
+      },
+      "type_paper": {
+        "name": "Carta"
+      },
+      "type_plastic": {
+        "name": "Plastica"
+      },
+      "type_glass": {
+        "name": "Vetro"
+      },
+      "type_metal": {
+        "name": "Metallo"
+      },
+      "type_green": {
+        "name": "Verde"
+      }
+    },
+    "text": {
+      "rule_custom": {
+        "name": "Giorni {type}"
+      },
+      "rule_residual": {
+        "name": "Giorni Secco / Indifferenziata"
+      },
+      "rule_organic": {
+        "name": "Giorni Umido"
+      },
+      "rule_paper": {
+        "name": "Giorni Carta"
+      },
+      "rule_plastic": {
+        "name": "Giorni Plastica"
+      },
+      "rule_glass": {
+        "name": "Giorni Vetro"
+      },
+      "rule_metal": {
+        "name": "Giorni Metallo"
+      },
+      "rule_green": {
+        "name": "Giorni Verde"
+      }
+    },
+    "calendar": {
+      "collections": {
+        "name": "Calendario"
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_rule": {
+      "message": "Regola non valida: {error}"
+    }
+  }
+}
