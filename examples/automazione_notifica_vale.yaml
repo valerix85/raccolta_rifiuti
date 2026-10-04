@@ -14,8 +14,11 @@ conditions:
       {{ (state_attr('sensor.raccolta_differenziata_domani', 'collection_types') or []) | length > 0 }}
 actions:
   - variables:
+      # Avviata a mano ("Esegui azioni") o da Alexa, le condizioni vengono
+      # saltate: in quel caso, se non c'è nulla, lo dice.
       testo: >-
-        Domani ritirano: {{ state_attr('sensor.raccolta_differenziata_domani', 'message') }}
+        {% set m = state_attr('sensor.raccolta_differenziata_domani', 'message') %}
+        {{ 'Domani ritirano: ' ~ m if m else "Domani non c'è nessuna raccolta" }}
   - action: notify.telegram_spazza
     data:
       title: "*Differenziata*"
