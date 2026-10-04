@@ -1,0 +1,149 @@
+# Vista Lovelace per Raccolta Rifiuti 2.0 (solo card standard, niente HACS).
+# Uso: Dashboard > ⋮ Modifica > + Aggiungi vista > ⋮ Modifica in YAML > incolla.
+# Gli entity_id presuppongono il nome "Raccolta Differenziata" e l'automazione
+# di examples/automazione_notifica_vale.yaml.
+title: Differenziata
+path: differenziata
+icon: mdi:trash-can-outline
+type: sections
+max_columns: 2
+sections:
+  # --- Cosa esporre -------------------------------------------------------
+  - type: grid
+    cards:
+      - type: heading
+        heading: Stasera esponi
+        icon: mdi:trash-can
+      - type: markdown
+        content: >-
+          {% set codes = state_attr('sensor.raccolta_differenziata_domani', 'collection_type_codes') or [] %}
+          {% set img = {'paper':'carta','plastic':'plastica','glass':'vetro','organic':'umido',
+                        'residual':'indifferenziata','metal':'metallo','green':'verde'} %}
+          {% if codes %}
+          <div style="display:flex;justify-content:space-evenly;align-items:center;">
+          {% for c in codes %}<img src="/local/images/img_raccolta_rifiuti/{{ img.get(c, 'default') }}.png" style="max-width:64px;max-height:64px;" />{% endfor %}
+          </div>
+
+          <center><b>{{ state_attr('sensor.raccolta_differenziata_domani', 'message') }}</b></center>
+          {% else %}
+          <center>Domani nessuna raccolta 🎉<br>
+          Prossima: {{ states('sensor.raccolta_differenziata_prossima_raccolta') | as_datetime | as_timestamp | timestamp_custom('%d/%m', true) }}
+          ({{ state_attr('sensor.raccolta_differenziata_prossima_raccolta', 'next_collection_types') | join(', ') }})</center>
+          {% endif %}
+      - type: tile
+        entity: sensor.raccolta_differenziata_oggi
+        name: Oggi
+        grid_options:
+          columns: 12
+
+  # --- Giorni mancanti per tipo ------------------------------------------
+  - type: grid
+    cards:
+      - type: heading
+        heading: Prossimi ritiri
+        icon: mdi:calendar-clock
+      - type: tile
+        entity: sensor.raccolta_differenziata_secco_indifferenziata
+        name: Secco
+        icon: mdi:trash-can
+        color: grey
+        state_content: [state, next_date]
+      - type: tile
+        entity: sensor.raccolta_differenziata_umido
+        name: Umido
+        icon: mdi:food-apple
+        color: brown
+        state_content: [state, next_date]
+      - type: tile
+        entity: sensor.raccolta_differenziata_carta
+        name: Carta
+        icon: mdi:file-document
+        color: blue
+        state_content: [state, next_date]
+      - type: tile
+        entity: sensor.raccolta_differenziata_plastica
+        name: Plastica
+        icon: mdi:bottle-soda
+        color: yellow
+        state_content: [state, next_date]
+      - type: tile
+        entity: sensor.raccolta_differenziata_vetro
+        name: Vetro
+        icon: mdi:glass-wine
+        color: green
+        state_content: [state, next_date]
+      - type: tile
+        entity: sensor.raccolta_differenziata_verde
+        name: Verde
+        icon: mdi:tree
+        color: light-green
+        state_content: [state, next_date]
+
+  # --- Calendario --------------------------------------------------------
+  - type: grid
+    cards:
+      - type: heading
+        heading: Calendario
+        icon: mdi:calendar
+      - type: calendar
+        entities:
+          - calendar.raccolta_differenziata
+        initial_view: listWeek
+        grid_options:
+          columns: full
+
+  # --- Impostazioni (come la pagina del package HassioHelp) ---------------
+  - type: grid
+    cards:
+      - type: heading
+        heading: Impostazioni
+        icon: mdi:cog
+      - type: entities
+        title: Giorni di raccolta
+        state_color: false
+        entities:
+          - entity: text.raccolta_differenziata_giorni_secco_indifferenziata
+            name: Secco
+            icon: mdi:trash-can
+          - entity: text.raccolta_differenziata_giorni_umido
+            name: Umido
+            icon: mdi:food-apple
+          - entity: text.raccolta_differenziata_giorni_carta
+            name: Carta
+            icon: mdi:file-document
+          - entity: text.raccolta_differenziata_giorni_plastica
+            name: Plastica
+            icon: mdi:bottle-soda
+          - entity: text.raccolta_differenziata_giorni_vetro
+            name: Vetro
+            icon: mdi:glass-wine
+          - entity: text.raccolta_differenziata_giorni_verde
+            name: Verde
+            icon: mdi:tree
+          - entity: text.raccolta_differenziata_giorni_metallo
+            name: Metallo
+            icon: mdi:can
+        footer:
+          type: buttons
+          entities:
+            - entity: automation.avviso_raccolta_differenziata
+              name: Invia messaggio ora
+              icon: mdi:send
+              tap_action:
+                action: perform-action
+                perform_action: automation.trigger
+                target:
+                  entity_id: automation.avviso_raccolta_differenziata
+                data:
+                  skip_condition: true
+                confirmation:
+                  text: Inviare ora l'avviso della raccolta?
+      - type: entities
+        title: Notifiche
+        entities:
+          - entity: automation.avviso_raccolta_differenziata
+            name: Avviso la sera prima (19:00)
+          - type: attribute
+            entity: sensor.raccolta_differenziata_prossima_raccolta
+            attribute: exceptions_calendar_ok
+            name: Calendario eccezioni leggibile
