@@ -6,6 +6,8 @@ PLATFORMS = ["sensor"]
 CONF_CALENDAR = "calendar_entity_id"
 CONF_LOOKAHEAD_DAYS = "lookahead_days"
 CONF_LANGUAGE = "language"
+# Extra user-defined phrases: {"multimateriale": ["plastic", "metal"], ...}
+CONF_KEYWORDS = "keywords"
 
 DEFAULT_LOOKAHEAD_DAYS = 7
 

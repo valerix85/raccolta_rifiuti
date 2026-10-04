@@ -53,8 +53,18 @@ sensor:
     calendar_entity_id: calendar.raccolta_rifiuti
     # language: auto        # opzionale: "auto" (default, segue la lingua di Home Assistant), "it" oppure "en"
     # lookahead_days: 7     # opzionale (default 7): entro quanti giorni cercare la prossima raccolta se oggi non c'è nulla
-    # scan_interval: "00:30:00"  # opzionale: intervallo di aggiornamento (default 30 minuti)
+    # scan_interval: "00:30:00"  # opzionale: intervallo di aggiornamento di sicurezza (default 30 minuti)
+    # keywords:                  # opzionale: parole personalizzate scritte nel tuo calendario
+    #   multimateriale: [plastic, metal]
+    #   sacco viola: plastic
+    #   pannolini: pannolini     # un codice nuovo diventa un tipo a sé ("Pannolini")
 ```
+
+🔄 **Aggiornamento automatico**: oltre all'intervallo, il sensore si aggiorna subito dopo mezzanotte e ogni volta che il calendario cambia stato (es. quando inizia l'evento delle 19:00), quindi non bisogna più aspettare fino a 30 minuti.
+
+⏳ **Calendari lenti (CalDAV, Google...)**: se all'avvio il calendario non è ancora pronto il sensore viene creato comunque, resta *non disponibile* e si popola da solo appena il calendario viene caricato.
+
+🔤 **Riconoscimento**: le parole sono cercate come parole intere, ignorando maiuscole, accenti, punteggiatura ed emoji: `Carta.`, `Carta - Vetro`, `🗑️ Umido`, `Plastica (sacco giallo)`, `PLASTICA E LATTINE` vengono riconosciuti. Codici disponibili per `keywords`: `paper`, `plastic`, `glass`, `organic`, `residual`, `metal`, `green` (oppure un codice nuovo a tua scelta). Gli eventi che non contengono nessuna parola nota compaiono come "Raccolta sconosciuta" e generano un avviso nel log con il testo da aggiungere a `keywords`.
 
 🌍 **Multi-lingua**: puoi scrivere gli eventi del calendario in italiano o in inglese (es. "Carta" o "Paper"), vengono riconosciuti entrambi. L'opzione `language` controlla solo la lingua di *visualizzazione* dello stato e degli attributi del sensore (default: segue la lingua configurata in Home Assistant). È disponibile anche l'attributo `collection_type_codes`, con valori stabili in inglese (es. `"paper"`, `"glass"`), utile per chi vuole scrivere template Lovelace indipendenti dalla lingua.
 
@@ -123,6 +133,28 @@ card:
 
     </div>
 ```
+
+💡 **Versione compatta** (indipendente dalla lingua, mostra anche metallo e verde):
+
+```yaml
+type: conditional
+conditions:
+  - condition: state
+    entity: calendar.raccolta_rifiuti
+    state: "on"
+card:
+  type: markdown
+  content: >-
+    Domani si raccoglie:
+    <div style="display:flex;justify-content:space-evenly;align-items:center;">
+    {% set img = {'paper':'carta','plastic':'plastica','glass':'vetro','organic':'umido',
+                  'residual':'indifferenziata','metal':'metallo','green':'verde'} %}
+    {% for c in state_attr('sensor.raccolta_rifiuti','collection_type_codes') or [] %}
+      <img src="/local/images/img_raccolta_rifiuti/{{ img.get(c, 'default') }}.png" style="max-width:50px;max-height:50px;" />
+    {% endfor %}
+    </div>
+```
+
 ---
 🖼️ Immagini (manuale)
 
@@ -152,6 +184,14 @@ Per usare i blueprint inclusi:
    [`blueprints/automation/raccolta_rifiuti/`](https://github.com/DomoticaFacile/raccolta_rifiuti/tree/main/blueprints/automation/raccolta_rifiuti)
 
 3. Riavvia Home Assistant o ricarica le automazioni.
+
+Blueprint disponibili:
+- `annuncio_raccolta_rifiuti_alexa.yaml` – annuncio con Alexa Media Player
+- `annuncio_raccolta_rifiuti_google.yaml` – annuncio su Google/Nest tramite `tts.speak` (qualsiasi motore TTS: Google Translate, Piper, Cloud)
+- `notifica_raccolta_rifiuti.yaml` – notifica (app Companion, Telegram, ...) con la variabile `{{ messaggio }}`
+- `alexa_start_automation.yaml` – avvio dell'annuncio tramite routine Alexa
+
+In alternativa puoi importarli da **Impostazioni > Automazioni e scenari > Blueprint > Importa blueprint** incollando l'URL del file su GitHub.
 
 👉 Dopo il riavvio, troverai l'automazione disponibile in:
 **Impostazioni > Automazioni e Scenari > + Crea automazione**
@@ -314,8 +354,13 @@ sensor:
     calendar_entity_id: calendar.raccolta_rifiuti
     # language: auto             # optional: "auto" (default, follows Home Assistant's language), "it" or "en"
     # lookahead_days: 7          # optional (default 7): how many days ahead to look for the next collection if today has none
-    # scan_interval: "00:30:00"  # optional: update interval (default 30 minutes)
+    # scan_interval: "00:30:00"  # optional: safety-net update interval (default 30 minutes)
+    # keywords:                  # optional: your own words used in the calendar
+    #   multimateriale: [plastic, metal]
+    #   diapers: diapers         # a new code becomes a type of its own
 ```
+
+The sensor also refreshes right after midnight and whenever the calendar entity changes state. If the calendar is not ready at startup (CalDAV, Google...) the sensor is still created, stays *unavailable* and fills in as soon as the calendar loads. Words are matched as whole words, ignoring case, accents, punctuation and emoji. Codes usable in `keywords`: `paper`, `plastic`, `glass`, `organic`, `residual`, `metal`, `green` (or any new code).
 
 🌍 **Multi-language**: calendar events can be written in Italian or English (e.g. "Carta" or "Paper"), both are recognized. The `language` option only controls the *display* language of the sensor's state and attributes (default: follows Home Assistant's configured language). A `collection_type_codes` attribute is also available, with stable English identifiers (e.g. `"paper"`, `"glass"`), handy for building Lovelace templates that shouldn't depend on the display language.
 

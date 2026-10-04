@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Localization data and helpers for Raccolta Rifiuti.
 
 This module keeps waste-type recognition (what the user typed into the
@@ -15,6 +14,7 @@ To add a new language, add an entry to KEYWORDS_BY_LANGUAGE (recognition),
 LABELS (display) and STRINGS (fixed UI text), then add the language code to
 SUPPORTED_LANGUAGES.
 """
+from __future__ import annotations
 
 # --- Canonical (language-independent) waste type identifiers ---------------
 TYPE_PAPER = "paper"
@@ -25,6 +25,18 @@ TYPE_RESIDUAL = "residual"
 TYPE_METAL = "metal"
 TYPE_GREEN = "green"
 TYPE_UNKNOWN = "unknown"
+
+# Fixed display order (used for state, attributes and entity picture), so the
+# output does not depend on the alphabetical order of the English codes.
+TYPE_ORDER = (
+    TYPE_RESIDUAL,
+    TYPE_ORGANIC,
+    TYPE_PAPER,
+    TYPE_PLASTIC,
+    TYPE_GLASS,
+    TYPE_METAL,
+    TYPE_GREEN,
+)
 
 # Image file associated with each canonical type (files already shipped
 # under images/img_raccolta_rifiuti/).
@@ -41,26 +53,42 @@ TYPE_IMAGES = {
 DEFAULT_IMAGE = "default.png"
 
 # --- Recognition: phrases the user might write in the calendar -------------
-# Longer/more specific phrases are tried before shorter ones (handled by the
-# caller sorting by length), so e.g. "rifiuto secco" wins over "secco".
+# Matching is done on whole words after removing punctuation/emoji, so
+# "Carta.", "Carta - Vetro", "🗑️ Umido" or "Plastica (sacco giallo)" are all
+# recognized. Longer phrases are tried first ("rifiuto secco" before "secco").
+# A phrase may map to a single type or to a tuple of types.
 KEYWORDS_BY_LANGUAGE = {
     "it": {
         "carta": TYPE_PAPER,
         "cartone": TYPE_PAPER,
+        "cartoni": TYPE_PAPER,
+        "cartoncino": TYPE_PAPER,
         "plastica": TYPE_PLASTIC,
         "vetro": TYPE_GLASS,
         "umido": TYPE_ORGANIC,
         "organico": TYPE_ORGANIC,
+        "organica": TYPE_ORGANIC,
         "frazione organica": TYPE_ORGANIC,
+        "frazione umida": TYPE_ORGANIC,
+        "forsu": TYPE_ORGANIC,
         "indifferenziata": TYPE_RESIDUAL,
         "indifferenziato": TYPE_RESIDUAL,
         "secco": TYPE_RESIDUAL,
         "rifiuto secco": TYPE_RESIDUAL,
+        "secco residuo": TYPE_RESIDUAL,
+        "residuo": TYPE_RESIDUAL,
+        "rsu": TYPE_RESIDUAL,
         "metallo": TYPE_METAL,
+        "metalli": TYPE_METAL,
         "lattine": TYPE_METAL,
+        "lattina": TYPE_METAL,
+        "alluminio": TYPE_METAL,
+        "barattolame": TYPE_METAL,
         "verde": TYPE_GREEN,
         "sfalci": TYPE_GREEN,
         "potature": TYPE_GREEN,
+        "ramaglie": TYPE_GREEN,
+        "scarti vegetali": TYPE_GREEN,
     },
     "en": {
         "paper": TYPE_PAPER,
@@ -75,6 +103,7 @@ KEYWORDS_BY_LANGUAGE = {
         "general waste": TYPE_RESIDUAL,
         "metal": TYPE_METAL,
         "cans": TYPE_METAL,
+        "tins": TYPE_METAL,
         "green waste": TYPE_GREEN,
         "garden waste": TYPE_GREEN,
         "yard waste": TYPE_GREEN,
@@ -125,7 +154,7 @@ DEFAULT_LANGUAGE = "en"
 SUPPORTED_LANGUAGES = ("it", "en")
 
 
-def resolve_language(preferred):
+def resolve_language(preferred: str | None) -> str:
     """Return a supported language code, falling back to English.
 
     `preferred` can be None, an explicit code ("it", "en"), or a locale
@@ -139,7 +168,7 @@ def resolve_language(preferred):
     return DEFAULT_LANGUAGE
 
 
-def build_keyword_index():
+def build_keyword_index() -> dict[str, tuple[str, ...]]:
     """Merge keywords from every source language into one lookup dict.
 
     This is intentionally language-agnostic on the *recognition* side: a
@@ -148,5 +177,6 @@ def build_keyword_index():
     """
     merged = {}
     for lang_keywords in KEYWORDS_BY_LANGUAGE.values():
-        merged.update(lang_keywords)
+        for phrase, types in lang_keywords.items():
+            merged[phrase] = (types,) if isinstance(types, str) else tuple(types)
     return merged

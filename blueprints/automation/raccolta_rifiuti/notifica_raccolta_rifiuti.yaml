@@ -1,0 +1,50 @@
+# Blueprint realizzato da domoticafacile.it per l'integrazione Raccolta Rifiuti.
+blueprint:
+  name: Notifica raccolta rifiuti
+  description: >
+    Invia una notifica (app Companion, Telegram, ecc.) con i rifiuti da esporre,
+    a un orario a scelta. Nelle azioni puoi usare la variabile {{ messaggio }}
+    (es. "Domani si raccoglie: Carta e Vetro.") e {{ raccolta }} (lista dei tipi).
+  domain: automation
+  source_url: https://github.com/DomoticaFacile/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/notifica_raccolta_rifiuti.yaml
+  homeassistant:
+    min_version: 2024.8.0
+  input:
+    sensore_raccolta:
+      name: Sensore raccolta rifiuti
+      selector:
+        entity:
+          domain: sensor
+          integration: raccolta_rifiuti
+    orario:
+      name: Orario della notifica
+      selector:
+        time: {}
+      default: "20:00:00"
+    azioni_notifica:
+      name: Azioni di notifica
+      description: >
+        Es. "Notifiche: Invia una notifica tramite mobile_app_telefono" con messaggio
+        "{{ messaggio }}".
+      selector:
+        action: {}
+
+trigger:
+  - platform: time
+    at: !input orario
+
+variables:
+  sensore: !input sensore_raccolta
+  raccolta: "{{ state_attr(sensore, 'collection_types') or [] }}"
+  messaggio: >
+    {% if raccolta | length > 1 %}Domani si raccoglie: {{ raccolta[:-1] | join(', ') }} e {{ raccolta[-1] }}.
+    {%- elif raccolta | length == 1 %}Domani si raccoglie: {{ raccolta[0] }}.
+    {%- else %}Domani non c'è nessuna raccolta.{% endif %}
+
+condition:
+  - condition: template
+    value_template: "{{ raccolta | length > 0 }}"
+
+action: !input azioni_notifica
+
+mode: single

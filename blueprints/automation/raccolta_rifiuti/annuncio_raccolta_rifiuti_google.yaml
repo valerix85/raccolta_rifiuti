@@ -5,6 +5,9 @@ blueprint:
     Annuncia cosa verrà raccolto domani, ogni sera a uno o due orari specificati,
     usando Google Home.
   domain: automation
+  source_url: https://github.com/DomoticaFacile/raccolta_rifiuti/blob/main/blueprints/automation/raccolta_rifiuti/annuncio_raccolta_rifiuti_google.yaml
+  homeassistant:
+    min_version: 2024.8.0
   input:
     sensore_raccolta:
       name: Sensore raccolta rifiuti
@@ -16,6 +19,15 @@ blueprint:
       selector:
         entity:
           domain: media_player
+    motore_tts:
+      name: Motore di sintesi vocale (TTS)
+      description: >
+        Es. tts.google_translate_it_com (Google Translate), tts.home_assistant_cloud,
+        tts.piper. Il vecchio servizio tts.google_translate_say non esiste più
+        se Google Translate è configurato da interfaccia.
+      selector:
+        entity:
+          domain: tts
     orario_annuncio_1:
       name: Primo orario dell'annuncio
       selector:
@@ -85,19 +97,20 @@ action:
           {{ raccolta[:-1] | join(', ') }} e {{ raccolta[-1] }}
         {% elif raccolta | length == 1 %}
           {{ raccolta[0] }}
-        {% else %}
-          nessun tipo di rifiuto definito
         {% endif %}
-      messaggio: "Domani verrà raccolto: {{ tipi }}."
+      messaggio: >
+        {% if raccolta | length > 0 %}Domani si raccoglie: {{ tipi | trim }}.{% else %}Domani non c'è nessuna raccolta.{% endif %}
 
   - service: media_player.volume_set
     data:
       entity_id: !input dispositivo_google
       volume_level: !input volume_pre_annuncio
 
-  - service: tts.google_translate_say
+  - service: tts.speak
+    target:
+      entity_id: !input motore_tts
     data:
-      entity_id: !input dispositivo_google
+      media_player_entity_id: !input dispositivo_google
       message: "{{ messaggio }}"
 
   - delay: 5
